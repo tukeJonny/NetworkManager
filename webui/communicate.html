@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Communicate with Ryu</title>
+</head>
+<body>
+    <div id="zmq"></div>
+    <div id="websocket"></div>
+    <div id="xhr"></div>
+    <script type="text/javascript">
+        function insert(type, result) {
+            document.getElementById(type).innerHTML = result);
+        }
+
+        function zmq() {
+            //ZeroMQ
+            
+        }
+
+        function websocket(socket) {
+            //WebSocket
+            var wsres;
+            socket.onopen = function() {
+                console.log("Open.");
+                socket.send("hello");
+            };
+            
+            socket.onmessage = function() {
+                try {
+                   wsres = $.parseJSON(message.data);
+                } catch(e) {
+                   console.log("Failed to receive Websocket message.");
+                }
+                this.prototype.readJson(wsres);
+            };
+        }
+
+        function xhr(url) {
+            var xhr = new XMLHttpRequest();
+            var data;
+            xhr.onreadystatechange = function() {
+                if(xhr.readyState === 4) {
+                    if(xhr.status == 200 || xhr.status == 304) {
+                        data = xhr.responseText;
+                    }
+                }
+            };
+            xhr.open("GET", url);
+            xhr.send(null);
+            return data;
+        }
+    </script>
+</body>
+</html>

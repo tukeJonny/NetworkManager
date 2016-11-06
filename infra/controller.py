@@ -1,5 +1,7 @@
 #-*- coding: utf-8 -*-
 import logging
+import sys
+sys.path.append('.')
 
 from ryu.app import simple_switch_13
 from ryu.controller import ofp_event
@@ -8,8 +10,8 @@ from ryu.controller.handler import set_ev_cls
 from ryu.app.wsgi import route, WSGIApplication
 from ryu.lib.packet import packet #Websocket
 
-from .rest_controller import RestController
-from .websocket_controller import WebSocketController
+from rest_controller import RestController
+from websocket_controller import WebSocketController
 
 simple_switch_instance_name = 'simple_switch_api_app'
 
@@ -18,6 +20,7 @@ class NetworkManagerController(simple_switch_13.SimpleSwitch13):
 
     def __init__(self, *args, **kwargs):
         super(NetworkManagerController, self).__init__(*args, **kwargs)
+        self.switches = {}
         wsgi = kwargs['wsgi']
         wsgi.register(RestController, {simple_switch_instance_name: self})
         #wsgi.register(WebSocketController, data={simple_switch_instance_name: self})
@@ -26,7 +29,7 @@ class NetworkManagerController(simple_switch_13.SimpleSwitch13):
     #REST API
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
-        super(NetworkManagerController, self).switch_feature_handler(ev)
+        super(NetworkManagerController, self).switch_features_handler(ev)
 
         datapath = ev.msg.datapath
         self.switches[datapath.id] = datapath

@@ -12,6 +12,25 @@
 				height: 400px;
 				border: 1px solid lightgray;
 			}
+			.tab{
+				overflow:hidden;
+			}
+			.tab li{
+				background:#ccc;
+				padding:5px 25px;
+				float:left;
+				margin-right:1px;
+			}
+			.tab li.select{
+				background:#eee;
+			}
+			.content li{
+                background:#eee;
+                padding:20px;
+			}
+			.hide {
+				display:none;
+			}
 		</style>
 	</head>
 
@@ -22,7 +41,31 @@
 		</div>
 
 		<script type="text/javascript" src="static/js/network.js"></script>
-		<pre id="eventSpan"></pre>
+		<ul class="tab">
+			<li>Configure</li>
+			<li class="select">Node</li>
+			<li>Edge</li>
+			<li>Action</li>
+			<li>Shark</li>
+		</ul>
+		<ul class="content">
+			<li class="hide"></li>
+			<li><pre id="eventSpan"></pre></li>
+			<li class="hide"></li>
+			<li class="hide"></li>
+			<li class="hide"></li>
+		</ul>
+		<script>
+			$(function() {
+                $('.tab li').click(function() {
+                	var index = $('.tab li').index(this);
+                	$('.content li').css('display','none');
+                	$('.content li').eq(index).css('display','block');
+                	$('.tab li').removeClass('select');
+                	$(this).addClass('select')
+                });
+            });
+		</script>
 	</body>
 </html>
 

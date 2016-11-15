@@ -136,7 +136,7 @@ RESTAPIManager.prototype.putFlowEntry = function(dpid, entry) {
 	return; //TBD
 };
 
-RESTAPIMangaer.prototype.putHost = function() {
+RESTAPIManager.prototype.putHost = function() {
 	return; //TBD
 };
 
@@ -189,10 +189,10 @@ NetworkGraph.prototype.addNode = function(infra_id, label, img_name) {
 	
 	if(img_name === "switch") {
 		this.resolve_table["switches"][infra_id] = id;
-	} else if(img_name === "laptop") {
+	} else if(img_name === "host") {
 		this.resolve_table["hosts"][infra_id] = id;
 	} else {
-		alert("Invalid img_name!");
+		alert("Invalid img_name!"+img_name);
 		return undefined;
 	}
 	

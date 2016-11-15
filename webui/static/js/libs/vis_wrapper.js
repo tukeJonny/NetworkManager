@@ -5,6 +5,10 @@
 //JSONを読み込んで、描画できるようにする
 //余裕があれば、パケットを送るなどのアニメーションも加えてみる
 
+//WebSocketで行うこと(WebSocketだと制御がきかないから、MQ使うのも手段)
+//Ryuから、どこからどこへパケットが飛んだかの情報を受け取って、それをブラウザに描画
+//Ryuから、ネットワークの変更通知を受け取って、再度描画し直す(新たなスイッチの検出など。これは、REST APIによる追加を行わずとも、追加されたのをRyuが検知するので任せればいい。スイッチの削除も同様)
+
 ////////////////////////////// Helpers //////////////////////////////
 var inherits = function(childCtor, parentCtor) {
 	//Constructor
@@ -98,6 +102,60 @@ Edge.prototype.getEdge = function() {
 	return edge;
 }
 
+var RESTAPIManager = function() {
+	this.controller = "192.168.0.1"; //コントローラのIP
+};
+
+RESTAPIManager.prototype.request = function(method, url) {
+	var xhr = new XMLHttpRequest();
+    var data;
+    xhr.onreadystatechange = function() {
+        if(xhr.readyState === 4) {
+            if(xhr.status == 200 || xhr.status == 304) {
+                data = xhr.responseText;
+            }
+        }
+    };
+    xhr.open(method, url);
+    xhr.send(null);
+    return data;
+}
+
+
+////////////////////////////// REST API管理マネージャ //////////////////////////////
+//スイッチの状態取得
+//rx,tx
+//received bytes, transmit bytes
+//flow entry
+RESTAPIManager.prototype.getSwitchInfo = function(dpid) {
+	url = "http://"+this.controller+"/simpleswitch/mactable/"+dpid;
+};
+
+//フローエントリの追加
+RESTAPIManager.prototype.putFlowEntry = function(dpid, entry) {
+	return; //TBD
+};
+
+RESTAPIMangaer.prototype.putHost = function() {
+	return; //TBD
+};
+
+RESTAPIManager.prototype.deleteHost = function() {
+	return; //TBD
+};
+
+RESTAPIManager.prototype.putEdge = function() {
+	return; //TBD
+};
+
+RESTAPIManager.prototype.deleteEdge = function() {
+	return; //TBD
+}
+
+RESTAPIManager.prototype.putPing = function() {
+	return; //TBD
+}
+
 ////////////////////////////// NetworkManager本体 //////////////////////////////
 //NetworkGraphクラス
 //グラフを描画するオブジェクト
@@ -110,41 +168,34 @@ var NetworkGraph = function(wsurl) {
 	this.node_id = 0; //AUTO INCREMENT
 	this.edge_id = 0; //AUTO INCREMENT
 
-	this.table = {
+	//ネットワーク的なIDによって、NetworkManagerの管理IDを解決するためのテーブル
+	//REST APIにおいては、dpidやIPアドレス(あるいはMACアドレス)で扱う方がやりやすい
+	//フロントJSにおいては、なるべく１種類のIDの方がやりやすい
+	this.resolve_table = {
 	    switches: {
 	        //datapath_id -> id
 	    },
 	    hosts: {
-	        //ip addr -> id
+	        //mac addr -> id
 	    }
-	};
-
-	//WebSocket
-	if(wsurl !== undefined) {
-		var socket = new WebSocket(wsurl);
-		var wsres;
-		socket.onopen = function() {
-		    console.log("Open.");
-		    socket.send("hello");
-		};
-		socket.onmessage = function() {
-	        try {
-	           wsres = $.parseJSON(message.data);
-	        } catch(e) {
-	           console.log("Failed to receive Websocket message.");
-	        }
-	        this.prototype.readJson(wsres);
-		}
-	} else {
-		console.log("No wsurl. websocket is disabled.");
-	}
+	};	
 };
 
 //Methods
 //addNode()メソッド。スイッチやRyuなどのノードを追加する
-NetworkGraph.prototype.addNode = function(label, img_name) {
+//infra側でのID(dpidやMACアドレスなど)
+NetworkGraph.prototype.addNode = function(infra_id, label, img_name) {
 	var id = this.node_id;
-
+	
+	if(img_name === "switch") {
+		this.resolve_table["switches"][infra_id] = id;
+	} else if(img_name === "laptop") {
+		this.resolve_table["hosts"][infra_id] = id;
+	} else {
+		alert("Invalid img_name!");
+		return undefined;
+	}
+	
 	var node = new Node(id, label);
 	if(img_name !== undefined) { node.addImage(img_name); }
 
@@ -198,8 +249,6 @@ NetworkGraph.prototype.draw = function() {
 //受け取ったJSONに対して、適切な処理を施す。
 NetworkGraph.prototype.readJson = function(json) {
     //パケットの送信
-    //スイッチの追加
-    //スイッチの削除
     //ホストの追加
     //ホストの削除
     //フロールール追加
@@ -208,8 +257,26 @@ NetworkGraph.prototype.readJson = function(json) {
 }
 
 //コントローラに対してWebsocketのメッセージを送信
-NetworkGraph.prototype.wssend = function(message) {
-	return;
+NetworkGraph.prototype.wssend = function(wsurl, message) {
+	//WebSocket
+	if(wsurl !== undefined) {
+		var socket = new WebSocket(wsurl);
+		var wsres;
+		socket.onopen = function() {
+		    console.log("Open.");
+		    socket.send("hello");
+		};
+		socket.onmessage = function() {
+	        try {
+	           wsres = $.parseJSON(message.data);
+	        } catch(e) {
+	           console.log("Failed to receive Websocket message.");
+	        }
+	        this.prototype.readJson(wsres);
+		}
+	} else {
+		console.log("No wsurl. websocket is disabled.");
+	}
 }
 
 //labelで送れるようにするといい？(ブラウザから操作した感じ)

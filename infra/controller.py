@@ -2,42 +2,72 @@
 import logging
 import sys
 sys.path.append('.')
+from operator import attrgetter
 
 from ryu.app import simple_switch_13
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER
-from ryu.controller.handler import set_ev_cls
-from ryu.app.wsgi import route, WSGIApplication
+from ryu.controller.handler import (
+    CONFIG_DISPATCHER,
+    set_ev_cls,
+    MAIN_DISPATCHER,
+    DEAD_DISPATCHER
+)
+from ryu.app.wsgi import (
+    route,
+    WSGIApplication
+)
 from ryu.lib.packet import packet #Websocket
+from ryu.lib.dpid import dpid_to_str, str_to_dpid
 
 from rest_controller import RestController
 from websocket_controller import WebSocketController
 
-simple_switch_instance_name = 'simple_switch_api_app'
+simple_switch_instance_name = 'network_manager_api_app'
 
 class NetworkManagerController(simple_switch_13.SimpleSwitch13):
     _CONTEXTS={'wsgi': WSGIApplication}
 
     def __init__(self, *args, **kwargs):
         super(NetworkManagerController, self).__init__(*args, **kwargs)
-        self.switches = {}
+        self._switches = dict()
+
+        self._flow_stats_update = False #flow_statsを最新状態にしたかどうかを示すフラグ
+        self._port_stats_update = False #port_statsを最新状態にしたかどうかを示すフラグ
+        # parameters
+        # self.stats = {datapath1: {...}, datapath2: {...}, ...}
+        # datapath: {
+        #   "flow": {
+        #       "param1": value1,
+        #       ...,
+        #   },
+        #   "port": {
+        #       "param1": value1,
+        #       ...,
+        #   },
+        # }, ...
+        self._stats = dict()
+        self._datapaths = dict()
+
         wsgi = kwargs['wsgi']
+        self.logger.info("[+] wsgi object = {0}".format(wsgi))
         wsgi.register(RestController, {simple_switch_instance_name: self})
-        #wsgi.register(WebSocketController, data={simple_switch_instance_name: self})
+        self.logger.info("[+] Register RestController({0}) to wsgi({1})".format(RestController, wsgi))
+        wsgi.register(WebSocketController, data={simple_switch_instance_name: self})
         #self._ws_manager = wsgi.websocketmanager
 
-    #REST API
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         super(NetworkManagerController, self).switch_features_handler(ev)
 
         datapath = ev.msg.datapath
-        self.switches[datapath.id] = datapath
-        self.mac_to_port.setdefault(datapath.id, {})
+        dpid = datapath.id
+        self.logger.info("[+] add datapath={0}".format(datapath.id))
+        self._switches[dpid] = datapath
+        self.mac_to_port.setdefault(dpid, {})
 
     def set_mac_to_port(self, dpid, entry):
         mac_table = self.mac_to_port.setdefault(dpid, {}) #対象スイッチのMACテーブルを初期化
-        datapath = self.switches.get(dpid) #スイッチのオブジェクトを取得
+        datapath = self._switches.get(dpid) #スイッチのオブジェクトを取得
 
         #フローエントリのポートやMACアドレスを取得する
         entry_port = entry['port']
@@ -63,6 +93,61 @@ class NetworkManagerController(simple_switch_13.SimpleSwitch13):
                                                                # 既知のデバイスが存在するポートへ
                                                                # パケットを転送する
                 mac_table.update({entry_mac: entry_port}) # 新しいデバイスがどこにいるか覚える
+
+    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
+    def _flow_stats_reply_handler(self, ev):
+        body = ev.msg.body
+        dpid = ev.msg.datapath.id
+
+        for flow_stat in sorted([flow for flow in body if flow.priority == 1], key=lambda flow: (flow.match['in_port'],flow.match['eth_dst'])):
+            self._stats[dpid] = dict()
+            self._stats[dpid]["flow"] = {
+                'in-port': flow_stat.match['in_port'],
+                'eth_dst': flow_stat.match['eth_dst'],
+                'out-port': flow_stat.instructions[0].actions[0].port,
+                'packets': flow_stat.packet_count,
+                'bytes': flow_stat.byte_count
+            }
+        self.logger.debug("[+] flow stats = {0}".format(self._stats[dpid]["flow"]))
+        self._flow_stats_update = True #更新完了
+
+    @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
+    def _port_stats_reply_handler(self, ev):
+        body = ev.msg.body
+        dpid = ev.msg.datapath.id
+
+        for port_stat in sorted(body, key=attrgetter('port_no')):
+            self.logger.info("[*] look port_stat= {0}".format(port_stat))
+            self._stats[dpid] = dict()
+            self._stats[dpid]["port"] = {
+                "port": port_stat.port_no,
+                #Receive
+                "rx_pkts": port_stat.rx_packets,
+                "rx_bytes": port_stat.rx_bytes,
+                "rx_error": port_stat.rx_errors,
+                #Transmit
+                "tx_packets": port_stat.tx_packets,
+                "tx_bytes": port_stat.tx_bytes,
+                # "tx_errors": port_stat.tx_errors
+            }
+        self.logger.debug("[+] port stats = {0}".format(self._stats[dpid]["port"]))
+        self._port_stats_update = True #更新完了
+
+    @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER,DEAD_DISPATCHER])
+    def _state_change_handler(self, ev):
+        datapath = ev.datapath
+        dpid = datapath.id
+
+        if ev.state == MAIN_DISPATCHER:
+            if not dpid in self._datapaths:
+                self.logger.debug("[+] Add OpenVSwitch ({0})".format(datapath.id))
+                self._datapaths[dpid] = datapath
+        elif ev.state == DEAD_DISPATCHER:
+            if dpid in self.datapaths:
+                self.logger.debug("[-] Delete OpenVSwitch ({0})".format(datapath.id))
+                del self._datapaths[dpid]
+
+        self.logger.debug("[*] Now datapath table = {0}".format(self._datapaths))
 
     # #WebSocket
     # @set_ev_cls(ofp_event.EventOFPPacketIn) # Packet-In
